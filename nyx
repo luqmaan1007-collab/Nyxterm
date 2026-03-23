@@ -1,60 +1,111 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =============================================
-# NyxTerm: Hybrid Linux + Termux shell
-# Supports automatic installs and public commands
+# Nyx Terminal — Linux + Termux hybrid with mirrors
 # =============================================
 
 PREFIX="$HOME/.nyxterm"
 BIN="$PREFIX/bin"
+REGISTRY="$PREFIX/installed.txt"
 mkdir -p "$BIN"
+touch "$REGISTRY"
 
-REPO_URL="https://github.com/luqmaan1007-collab/NyxCommands"  # approved commands
+# Real Termux mirrors
+TERMUX_MIRRORS=(
+    "https://packages.termux.org/apt/termux-main"
+    "https://main.termux-mirror.ml"
+    "https://mirror1.termux.org"
+    "https://mirror2.termux.org"
+)
+
+# Public Debian mirrors for .deb packages
+DEBIAN_MIRRORS=(
+    "http://deb.debian.org/debian/pool/main"
+    "http://ftp.us.debian.org/debian/pool/main"
+    "http://ftp.debian.org/debian/pool/main"
+)
 
 # ----------------------
-# Helpers
+# Helper Functions
 # ----------------------
-install_termux_pkg() {
-    pkgname="$1"
-    echo "[*] Installing Termux package $pkgname..."
-    apt-get update -o Dpkg::Progress-Fancy=1
-    apt-get install "$pkgname" -o Dpkg::Progress-Fancy=1
-}
 
-install_custom_command() {
-    cmd="$1"
-    deb_url="$2"
-    tmp_deb="$PREFIX/$cmd.deb"
-    echo "[*] Downloading $cmd from approved repo..."
-    curl -L --progress-bar "$deb_url" -o "$tmp_deb"
-    dpkg -i "$tmp_deb"
-    rm "$tmp_deb"
-    echo "[✓] $cmd installed!"
-}
-
+# Check if command exists (PATH + local registry)
 check_command() {
     cmd="$1"
     if command -v "$cmd" >/dev/null 2>&1; then
         return 0
-    elif [ -x "$BIN/$cmd" ]; then
+    elif grep -q "^$cmd$" "$REGISTRY" 2>/dev/null; then
         return 0
     else
         return 1
     fi
 }
 
-builtin_help() {
-    echo "NyxTerm commands:"
-    echo "  nyx install <package>          - Install Termux package"
-    echo "  nyx install-script <name> <url> - Install approved custom command"
-    echo "  help                           - Show help"
-    echo "  exit                           - Exit shell"
-    echo "  Any installed command can be run directly"
+# Install Termux package
+nyx_install() {
+    pkg="$1"
+    if check_command "$pkg"; then
+        echo "[✓] $pkg already installed"
+        return
+    fi
+    echo "[*] Installing Termux package $pkg..."
+    apt update
+    apt install -y "$pkg"
+    if [[ $? -eq 0 ]]; then
+        echo "$pkg" >> "$REGISTRY"
+        echo "[✓] $pkg installed!"
+    else
+        echo "[✗] Failed to install $pkg"
+    fi
+}
+
+# Deploy command from Debian mirrors or scripts
+nyx_deploy() {
+    cmd="$1"
+    if check_command "$cmd"; then
+        echo "[✓] $cmd already installed"
+        return
+    fi
+
+    echo "[*] Searching mirrors for $cmd..."
+    success=0
+
+    for mirror in "${DEBIAN_MIRRORS[@]}"; do
+        url="$mirror/$cmd.deb"
+        echo "[*] Trying $url ..."
+        curl -fL --progress-bar "$url" -o "$BIN/$cmd.deb" 2>/dev/null
+        if [[ $? -eq 0 ]]; then
+            dpkg -i "$BIN/$cmd.deb"
+            if [[ $? -eq 0 ]]; then
+                chmod +x "$(which $cmd 2>/dev/null || echo "$BIN/$cmd")"
+                echo "$cmd" >> "$REGISTRY"
+                rm "$BIN/$cmd.deb"
+                echo "[✓] $cmd installed and ready!"
+                success=1
+                break
+            fi
+        fi
+        echo "[!] Mirror failed, trying next..."
+    done
+
+    if [[ $success -eq 0 ]]; then
+        echo "[✗] Could not install $cmd — no working mirrors"
+    fi
+}
+
+# Show help
+nyx_help() {
+    echo "Nyx Terminal Commands:"
+    echo "  nyx install <package>       - Install Termux package"
+    echo "  nyx deploy <command>        - Install command from Linux mirrors"
+    echo "  help                        - Show this help"
+    echo "  exit                        - Exit shell"
+    echo "  Installed commands tracked in $REGISTRY"
 }
 
 # ----------------------
-# Main shell loop
+# Main Loop
 # ----------------------
-echo "NyxTerm shell — hybrid Linux + Termux"
+echo "Nyx Terminal — Linux + Termux hybrid with real mirrors and persistent storage"
 while true; do
     cwd="$PWD"
     prompt="$cwd"
@@ -67,24 +118,23 @@ while true; do
 
     case "$cmd" in
         exit) break ;;
-        help) builtin_help ;;
+        help) nyx_help ;;
         nyx)
             sub=$(echo "$args" | awk '{print $1}')
-            pkgname=$(echo "$args" | awk '{print $2}')
-            url=$(echo "$args" | awk '{print $3}')
-            if [[ "$sub" == "install" && -n "$pkgname" ]]; then
-                install_termux_pkg "$pkgname"
-            elif [[ "$sub" == "install-script" && -n "$pkgname" && -n "$url" ]]; then
-                install_custom_command "$pkgname" "$url"
+            arg1=$(echo "$args" | awk '{print $2}')
+            if [[ "$sub" == "install" && -n "$arg1" ]]; then
+                nyx_install "$arg1"
+            elif [[ "$sub" == "deploy" && -n "$arg1" ]]; then
+                nyx_deploy "$arg1"
             else
-                echo "Usage: nyx install <package> OR nyx install-script <name> <url>"
+                echo "Usage: nyx install <pkg> OR nyx deploy <cmd>"
             fi
             ;;
         *)
             if check_command "$cmd"; then
                 "$cmd" $args
             else
-                echo "[*] Command $cmd not installed. Use: nyx install $cmd"
+                echo "[*] '$cmd' not installed. Use: nyx install $cmd or nyx deploy $cmd"
             fi
             ;;
     esac
