@@ -1,0 +1,75 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# =============================================
+# NyxTerm shell — fully functional Termux pkg frontend
+# =============================================
+
+PREFIX="$HOME/.nyxterm"
+BIN="$PREFIX/bin"
+mkdir -p "$BIN"
+
+# ----------------------
+# Helper functions
+# ----------------------
+install_command() {
+    pkgname="$1"
+    echo "[*] Installing $pkgname via Termux pkg..."
+    if command -v pkg >/dev/null 2>&1; then
+        # Use pkg with progress
+        pkg install -y "$pkgname"
+        if [ $? -eq 0 ]; then
+            echo "[✓] $pkgname installed successfully!"
+        else
+            echo "[✗] Failed to install $pkgname"
+        fi
+    else
+        echo "[✗] Termux pkg not found!"
+    fi
+}
+
+builtin_help() {
+    echo "NyxTerm commands:"
+    echo "  nyx install <package>  - Install package via Termux pkg"
+    echo "  help                   - Show this help"
+    echo "  exit                   - Exit shell"
+    echo "  Any installed command can be run directly"
+}
+
+# ----------------------
+# Main shell loop
+# ----------------------
+echo "NyxTerm shell — Termux pkg frontend"
+while true; do
+    cwd="$PWD"
+    if [[ "$cwd" == "$HOME"* ]]; then
+        prompt="~${cwd#$HOME}"
+    else
+        prompt="$cwd"
+    fi
+    printf "\$%s> " "$prompt"
+
+    read -r line
+    cmd=$(echo "$line" | awk '{print $1}')
+    args=$(echo "$line" | cut -d' ' -f2-)
+
+    case "$cmd" in
+        exit) break ;;
+        help) builtin_help ;;
+        nyx)
+            sub=$(echo "$args" | awk '{print $1}')
+            pkgname=$(echo "$args" | awk '{print $2}')
+            if [[ "$sub" == "install" && -n "$pkgname" ]]; then
+                install_command "$pkgname"
+            else
+                echo "Usage: nyx install <package>"
+            fi
+            ;;
+        *)
+            # Run command if installed
+            if command -v "$cmd" >/dev/null 2>&1; then
+                "$cmd" $args
+            else
+                echo "[*] Command $cmd not installed. Use: nyx install $cmd"
+            fi
+            ;;
+    esac
+done
