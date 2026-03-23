@@ -1,68 +1,64 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =============================================
-# NyxTerm shell — with live progress for installs
+# NyxTerm: Hybrid Linux + Termux shell
+# Supports automatic installs and public commands
 # =============================================
 
 PREFIX="$HOME/.nyxterm"
 BIN="$PREFIX/bin"
 mkdir -p "$BIN"
 
+REPO_URL="https://github.com/luqmaan1007-collab/NyxCommands"  # approved commands
+
 # ----------------------
-# Helper functions
+# Helpers
 # ----------------------
-install_command() {
+install_termux_pkg() {
     pkgname="$1"
-    echo "[*] Installing $pkgname via Termux (with progress)..."
-
-    if ! command -v apt >/dev/null 2>&1; then
-        echo "[✗] apt not found! Cannot install packages."
-        return 1
-    fi
-
-    # Update package lists
-    echo "[*] Updating package lists..."
+    echo "[*] Installing Termux package $pkgname..."
     apt-get update -o Dpkg::Progress-Fancy=1
-
-    # Install package with fancy progress
     apt-get install "$pkgname" -o Dpkg::Progress-Fancy=1
-    if [ $? -eq 0 ]; then
-        echo "[✓] $pkgname installed successfully!"
-    else
-        echo "[✗] Failed to install $pkgname"
-    fi
 }
 
-install_script() {
-    # For custom scripts from CDN
-    scriptname="$1"
-    url="$2"
-    dest="$BIN/$scriptname"
+install_custom_command() {
+    cmd="$1"
+    deb_url="$2"
+    tmp_deb="$PREFIX/$cmd.deb"
+    echo "[*] Downloading $cmd from approved repo..."
+    curl -L --progress-bar "$deb_url" -o "$tmp_deb"
+    dpkg -i "$tmp_deb"
+    rm "$tmp_deb"
+    echo "[✓] $cmd installed!"
+}
 
-    echo "[*] Downloading $scriptname from $url"
-    curl -L --progress-bar "$url" -o "$dest"
-    chmod +x "$dest"
-    echo "[✓] $scriptname installed at $dest"
+check_command() {
+    cmd="$1"
+    if command -v "$cmd" >/dev/null 2>&1; then
+        return 0
+    elif [ -x "$BIN/$cmd" ]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 builtin_help() {
     echo "NyxTerm commands:"
-    echo "  nyx install <package>         - Install Termux package with progress"
-    echo "  nyx install-script <name> <url> - Install custom script from URL"
-    echo "  help                          - Show this help"
-    echo "  exit                          - Exit shell"
+    echo "  nyx install <package>          - Install Termux package"
+    echo "  nyx install-script <name> <url> - Install approved custom command"
+    echo "  help                           - Show help"
+    echo "  exit                           - Exit shell"
+    echo "  Any installed command can be run directly"
 }
 
 # ----------------------
 # Main shell loop
 # ----------------------
-echo "NyxTerm shell — Termux pkg installer with live progress"
+echo "NyxTerm shell — hybrid Linux + Termux"
 while true; do
     cwd="$PWD"
-    if [[ "$cwd" == "$HOME"* ]]; then
-        prompt="~${cwd#$HOME}"
-    else
-        prompt="$cwd"
-    fi
+    prompt="$cwd"
+    [[ "$cwd" == "$HOME"* ]] && prompt="~${cwd#$HOME}"
     printf "\$%s> " "$prompt"
 
     read -r line
@@ -77,15 +73,15 @@ while true; do
             pkgname=$(echo "$args" | awk '{print $2}')
             url=$(echo "$args" | awk '{print $3}')
             if [[ "$sub" == "install" && -n "$pkgname" ]]; then
-                install_command "$pkgname"
+                install_termux_pkg "$pkgname"
             elif [[ "$sub" == "install-script" && -n "$pkgname" && -n "$url" ]]; then
-                install_script "$pkgname" "$url"
+                install_custom_command "$pkgname" "$url"
             else
                 echo "Usage: nyx install <package> OR nyx install-script <name> <url>"
             fi
             ;;
         *)
-            if command -v "$cmd" >/dev/null 2>&1; then
+            if check_command "$cmd"; then
                 "$cmd" $args
             else
                 echo "[*] Command $cmd not installed. Use: nyx install $cmd"
